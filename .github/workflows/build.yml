@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build Markdown Converter
 
 on: [push, pull_request]
 
@@ -13,12 +13,12 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-    
-    - name: Set up Qt
+      
+    - name: Set up Qt (with all required modules)
       uses: jurplel/install-qt-action@v3
       with:
         version: ${{ matrix.qt-version }}
-        modules: qtwebengine
+        modules: qtwebengine qtwebchannel qtwebenginecore
         cached: true
         
     - name: Install dependencies (Ubuntu)
@@ -39,7 +39,8 @@ jobs:
         
     - name: Configure CMake
       run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release
+        cmake -B build -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
         
     - name: Build
       run: |
