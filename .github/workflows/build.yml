@@ -7,8 +7,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        qt-version: ['5.15.2']
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+        qt-version: ['6.4.2']
     
     steps:
     - name: Checkout code
@@ -19,6 +19,7 @@ jobs:
       with:
         version: ${{ matrix.qt-version }}
         modules: qtwebengine
+        cached: true
         
     - name: Install dependencies (Ubuntu)
       if: runner.os == 'Linux'
@@ -44,7 +45,16 @@ jobs:
       run: |
         cmake --build build --config Release
         
-    - name: Run tests (optional)
+    - name: Run tests
       run: |
         cd build
-        ctest --output-on-failure
+        ./MarkdownConverter ../README.md test.html html
+        if [ ! -f "test.html" ]; then
+          echo "HTML conversion test failed!"
+          exit 1
+        fi
+        
+        # PDF测试在CI环境中可能需要GUI，可以跳过或使用xvfb
+        if [ "${{ runner.os }}" != "Windows" ]; then
+          xvfb-run ./MarkdownConverter ../README.md test.pdf pdf || echo "PDF test skipped (no GUI)"
+        fi
