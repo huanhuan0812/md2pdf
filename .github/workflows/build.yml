@@ -7,18 +7,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-22.04, windows-latest]
+        os: [ubuntu-22.04, windows-latest, macos-latest]
         qt-version: ['6.4.2']
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
       
-    - name: Set up Qt (with all required modules)
+    - name: Set up Qt
       uses: jurplel/install-qt-action@v3
       with:
         version: ${{ matrix.qt-version }}
-        modules: qtwebengine qtwebchannel qtwebenginecore
+        modules: qtwebengine
         cached: true
         
     - name: Install dependencies (Ubuntu)
@@ -37,11 +37,13 @@ jobs:
       run: |
         choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
         
+    - name: Create build directory
+      run: mkdir build
+      
     - name: Configure CMake
-      run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}"
+      working-directory: ./build
+      run: cmake .. -DCMAKE_BUILD_TYPE=Release
         
     - name: Build
-      run: |
-        cmake --build build --config Release
+      working-directory: ./build
+      run: cmake --build . --config Release
