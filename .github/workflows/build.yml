@@ -1,103 +1,163 @@
-name: CI/CD Pipeline
+name: Qt6 Markdown Converter CI/CD
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  release:
+    types: [ created ]
   workflow_dispatch:
 
 env:
-  QT_VERSION: '6.5.0'
-  BUILD_TYPE: Release
+  QT_VERSION: '6.6.0'  # 使用最新的LTS版本
+  BUILD_TYPE: 'Release'
+  APP_NAME: 'MarkdownConverter'
+  VERSION: '1.0.0'
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
+  build-and-test:
+    name: Build and Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-22.04, windows-2022, macos-12]
-    runs-on: ${{ matrix.os }}
-    
+      fail-fast: false
+
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v3
       with:
         submodules: recursive
-        
+
+    - name: Cache Qt installation
+      uses: actions/cache@v3
+      id: cache-qt
+      with:
+        path: |
+          ~/Qt
+          ${{ env.HOME }}/Qt
+        key: ${{ runner.os }}-qt-${{ env.QT_VERSION }}-${{ hashFiles('CMakeLists.txt') }}
+
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
+      if: steps.cache-qt.outputs.cache-hit != 'true'
       with:
         version: ${{ env.QT_VERSION }}
-        dir: ${{ github.workspace }}/Qt
-        cached: true
+        modules: qtbase qtdeclarative qttools qt5compat qtwebengine
+        cached: ${{ steps.cache-qt.outputs.cache-hit == 'true' }}
         install-deps: true
-        modules: qtbase qttools qtdeclarative qt5compat
-        
-    - name: Set up CMake
-      uses: actions/setup-cmake@v3
-      
-    - name: Configure
+
+    - name: Install system dependencies (Linux)
+      if: runner.os == 'Linux'
       run: |
-        mkdir build
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgl1-mesa-dev \
+          libxkbcommon-x11-dev \
+          libvulkan-dev \
+          ninja-build
+
+    - name: Install system dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install ninja
+
+    - name: Install CMake
+      uses: lukka/get-cmake@v3
+
+    - name: Configure project
+      run: |
+        mkdir -p build
         cd build
-        cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
-        
-    - name: Build
-      working-directory: ./build
-      run: cmake --build . --config ${{ env.BUILD_TYPE }}
-      
+        cmake -GNinja \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_INSTALL_PREFIX=../install \
+          ..
+
+    - name: Build project
+      run: |
+        cd build
+        cmake --build . --config ${{ env.BUILD_TYPE }}
+
     - name: Run tests
-      working-directory: ./build
-      run: |
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
-        else
-          ctest --output-on-failure
-        fi
-        
-    - name: Package application
       run: |
         cd build
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          mkdir package
-          cd ${{ env.BUILD_TYPE }}
-          windeployqt MarkdownConverter.exe
-          cp *.exe *.dll ../package/
+        ctest --output-on-failure
+
+    - name: Install project
+      run: |
+        cd build
+        cmake --install .
+
+    - name: Prepare artifacts
+      run: |
+        mkdir -p artifacts
+        if [ "$RUNNER_OS" = "Linux" ]; then
+          cp -r install/* artifacts/
+        elif [ "$RUNNER_OS" = "Windows" ]; then
+          cp -r install/* artifacts/
+          # 使用windeployqt打包
+          export PATH=$PATH:"C:/Qt/${{ env.QT_VERSION }}/mingw_64/bin"
+          windeployqt --release artifacts/${{ env.APP_NAME }}.exe
         elif [ "$RUNNER_OS" = "macOS" ]; then
-          macdeployqt MarkdownConverter.app -dmg
-        else
-          linuxdeployqt MarkdownConverter -appimage
+          cp -r install/* artifacts/
+          # 使用macdeployqt打包
+          /Users/runner/Qt/${{ env.QT_VERSION }}/macos/bin/macdeployqt artifacts/${{ env.APP_NAME }}.app -dmg
         fi
-        
-    - name: Upload artifact
+
+    - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
-        name: MarkdownConverter-${{ matrix.os }}
-        path: |
-          build/package/*
-          build/*.AppImage
-          build/*.dmg
-          build/MarkdownConverter.app
-          
-  deploy:
-    name: Deploy Release
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    
+        name: ${{ runner.os }}-build
+        path: artifacts
+        retention-days: 5
+
+  create-release:
+    name: Create Release
+    needs: build-and-test
+    runs-on: ubuntu-22.04
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v3
       with:
         path: artifacts
-        
-    - name: Create release
+
+    - name: Create release package (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        cd artifacts/ubuntu-22.04-build
+        tar -czvf ../${{ env.APP_NAME }}-Linux-${{ env.VERSION }}.tar.gz *
+        cd ../..
+
+    - name: Create release package (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cd artifacts/windows-2022-build
+        7z a ../${{ env.APP_NAME }}-Windows-${{ env.VERSION }}.zip *
+        cd ../..
+
+    - name: Create release package (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        cd artifacts/macos-12-build
+        zip -r ../${{ env.APP_NAME }}-macOS-${{ env.VERSION }}.zip *
+        cd ../..
+
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: v${{ env.VERSION }}
+        release_name: Version ${{ env.VERSION }}
+        body: |
+          Qt6 Markdown Converter ${{ env.VERSION }}
+          - Cross-platform Markdown to HTML/PDF converter
+          - Built with Qt ${{ env.QT_VERSION }}
         files: |
-          artifacts/MarkdownConverter-ubuntu-22.04/*
-          artifacts/MarkdownConverter-windows-2022/*
-          artifacts/MarkdownConverter-macos-12/*
-        tag_name: v${{ github.run_number }}
-        body: Automated release for build ${{ github.run_number }}
+          artifacts/${{ env.APP_NAME }}-Linux-${{ env.VERSION }}.tar.gz
+          artifacts/${{ env.APP_NAME }}-Windows-${{ env.VERSION }}.zip
+          artifacts/${{ env.APP_NAME }}-macOS-${{ env.VERSION }}.zip
+        draft: false
+        prerelease: false
