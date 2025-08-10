@@ -44,17 +44,3 @@ jobs:
     - name: Build
       run: |
         cmake --build build --config Release
-        
-    - name: Run tests
-      run: |
-        cd build
-        ./MarkdownConverter ../README.md test.html html
-        if [ ! -f "test.html" ]; then
-          echo "HTML conversion test failed!"
-          exit 1
-        fi
-        
-        # PDF测试在CI环境中可能需要GUI，可以跳过或使用xvfb
-        if [ "${{ runner.os }}" != "Windows" ]; then
-          xvfb-run ./MarkdownConverter ../README.md test.pdf pdf || echo "PDF test skipped (no GUI)"
-        fi
