@@ -41,12 +41,12 @@ jobs:
 
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
-      if: steps.cache-qt.outputs.cache-hit != 'true'
       with:
-        version: ${{ env.QT_VERSION }}
-        modules: qtbase qtdeclarative qttools qt5compat qtwebengine
-        cached: ${{ steps.cache-qt.outputs.cache-hit == 'true' }}
-        install-deps: true
+        version: '6.6.0'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
+        modules: 'qtbase qtdeclarative qttools qt5compat qtwebengine'
 
     - name: Install system dependencies (Linux)
       if: runner.os == 'Linux'
