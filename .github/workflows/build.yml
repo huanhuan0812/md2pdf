@@ -1,49 +1,103 @@
-name: Build Markdown Converter
+name: CI/CD Pipeline
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  QT_VERSION: '6.5.0'
+  BUILD_TYPE: Release
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.os }})
     strategy:
       matrix:
-        os: [ubuntu-22.04, windows-latest, macos-latest]
-        qt-version: ['6.4.2']
+        os: [ubuntu-22.04, windows-2022, macos-12]
+    runs-on: ${{ matrix.os }}
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
-      
-    - name: Set up Qt
+      with:
+        submodules: recursive
+        
+    - name: Install Qt
       uses: jurplel/install-qt-action@v3
       with:
-        version: ${{ matrix.qt-version }}
-        modules: qtwebengine
+        version: ${{ env.QT_VERSION }}
+        dir: ${{ github.workspace }}/Qt
         cached: true
+        install-deps: true
+        modules: qtbase qttools qtdeclarative qt5compat
         
-    - name: Install dependencies (Ubuntu)
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y cmake build-essential libgl1-mesa-dev
-        
-    - name: Install dependencies (macOS)
-      if: runner.os == 'macOS'
-      run: |
-        brew install cmake
-        
-    - name: Install dependencies (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-        
-    - name: Create build directory
-      run: mkdir build
+    - name: Set up CMake
+      uses: actions/setup-cmake@v3
       
-    - name: Configure CMake
-      working-directory: ./build
-      run: cmake .. -DCMAKE_BUILD_TYPE=Release
+    - name: Configure
+      run: |
+        mkdir build
+        cd build
+        cmake -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
         
     - name: Build
       working-directory: ./build
-      run: cmake --build . --config Release
+      run: cmake --build . --config ${{ env.BUILD_TYPE }}
+      
+    - name: Run tests
+      working-directory: ./build
+      run: |
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
+        else
+          ctest --output-on-failure
+        fi
+        
+    - name: Package application
+      run: |
+        cd build
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          mkdir package
+          cd ${{ env.BUILD_TYPE }}
+          windeployqt MarkdownConverter.exe
+          cp *.exe *.dll ../package/
+        elif [ "$RUNNER_OS" = "macOS" ]; then
+          macdeployqt MarkdownConverter.app -dmg
+        else
+          linuxdeployqt MarkdownConverter -appimage
+        fi
+        
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: MarkdownConverter-${{ matrix.os }}
+        path: |
+          build/package/*
+          build/*.AppImage
+          build/*.dmg
+          build/MarkdownConverter.app
+          
+  deploy:
+    name: Deploy Release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+        
+    - name: Create release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/MarkdownConverter-ubuntu-22.04/*
+          artifacts/MarkdownConverter-windows-2022/*
+          artifacts/MarkdownConverter-macos-12/*
+        tag_name: v${{ github.run_number }}
+        body: Automated release for build ${{ github.run_number }}
