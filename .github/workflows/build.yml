@@ -58,8 +58,7 @@ jobs:
     
     # Configure with CMake (Ninja generator + Release mode)
     - name: Configure with CMake
-      shell: cmd
-      run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+      run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -S ..
     
     # Build with Ninja
     - name: Build application
