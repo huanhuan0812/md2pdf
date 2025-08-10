@@ -1,4 +1,4 @@
-name: Build and Package Qt Application (CMake + Release + Ninja + Qt Cache)
+name: Build and Package Qt Application with CMake (Release + Ninja)
 
 on:
   push:
@@ -8,8 +8,6 @@ on:
 
 env:
   BUILD_TYPE: Release
-  QT_VERSION: 6.2.2
-  QT_CACHE_KEY: qt-${{ matrix.os }}-${{ env.QT_VERSION }}
 
 jobs:
   build:
@@ -22,102 +20,75 @@ jobs:
     steps:
     - name: Git checkout
       uses: actions/checkout@v3
-
-    # Setup Qt cache
-    - name: Cache Qt installation
-      id: cache-qt
-      uses: actions/cache@v3
-      with:
-        path: |
-          ${{ runner.temp }}/qt
-          ~/Qt
-          /Users/runner/Qt
-        key: ${{ env.QT_CACHE_KEY }}
-        restore-keys: |
-          qt-${{ matrix.os }}-
-          qt-
-
-    # Install Qt (only if cache miss)
-    - name: Install Qt (Windows)
-      if: matrix.os == 'windows-latest' && steps.cache-qt.outputs.cache-hit != 'true'
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: ${{ env.QT_VERSION }}
-        arch: 'win64_mingw'
-        cached: true
-        install-deps: true
-
-    - name: Install Qt (Linux)
-      if: matrix.os == 'ubuntu-latest' && steps.cache-qt.outputs.cache-hit != 'true'
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: ${{ env.QT_VERSION }}.*
-        target: 'desktop'
-        cached: true
-        install-deps: true
-
-    - name: Install Qt (macOS)
-      if: matrix.os == 'macOS-latest' && steps.cache-qt.outputs.cache-hit != 'true'
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: ${{ env.QT_VERSION }}.*
-        target: 'desktop'
-        cached: true
-        install-deps: true
-
-    # Add Qt to PATH (Windows specific)
-    - name: Add Qt to PATH (Windows)
+    
+    # Install Qt for each platform
+    - name: Install Qt windows
       if: matrix.os == 'windows-latest'
-      run: echo "$QT_PATH_WIN64/bin" >> $GITHUB_PATH
-
-    # Install build tools
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.2.2'
+        arch: 'win64_mingw'
+    
+    - name: Install Qt linux 
+      if: matrix.os == 'ubuntu-latest'
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.2.*'
+        target: 'desktop'
+    
+    - name: Install Qt mac
+      if: matrix.os == 'macOS-latest'
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.2.*'
+        target: 'desktop'
+    
+    # Install build tools (CMake + Ninja)
     - name: Install CMake
       uses: actions/setup-cmake@v3
       with:
         cmake-version: '3.25.0'
-
+    
     - name: Install Ninja
       uses: seanmiddleditch/gha-setup-ninja@v3
-
-    # Create and navigate to build directory
+    
+    # Create build directory
     - name: Create build directory
-      run: mkdir -p build
-
-    # Configure with CMake (explicitly specify source dir)
+      run: mkdir build && cd build
+    
+    # Configure with CMake (Ninja generator + Release mode)
     - name: Configure with CMake
-      working-directory: ./build
-      run: cmake -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} $GITHUB_WORKSPACE
-
+      run: cmake -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ..
+    
     # Build with Ninja
     - name: Build application
-      working-directory: ./build
       run: cmake --build . --config ${{ env.BUILD_TYPE }}
-
-    # Package application
+    
+    # Package application for each platform
     - name: Package Windows executable
       if: matrix.os == 'windows-latest'
       run: |
         mkdir -p app
-        cp build/${{ env.BUILD_TYPE }}/class-manager.exe app/
+        cp ${{ env.BUILD_TYPE }}/class-manager.exe app/
         cd app
-        windeployqt --release --no-compiler-runtime class-manager.exe
-
+        windeployqt class-manager.exe
+    
     - name: Package Linux application
       if: matrix.os == 'ubuntu-latest'
       run: |
         mkdir -p app
-        cp build/class-manager app/
-
+        cp class-manager app/
+    
     - name: Package macOS application
       if: matrix.os == 'macOS-latest'
       run: |
         mkdir -p app
-        cp build/class-manager.app/Contents/MacOS/class-manager app/
-
+        cp class-manager.app/Contents/MacOS/class-manager app/
+    
     # Create archive
     - name: Create compressed archive
       run: tar -czvf app-${{ matrix.os }}.tar.gz app
-
+    
     # Upload artifact
     - name: Upload build artifact
       uses: actions/upload-artifact@v3
