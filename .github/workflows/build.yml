@@ -20,6 +20,10 @@ jobs:
     steps:
     - name: Git checkout
       uses: actions/checkout@v3
+
+    - name: tree
+      run: tree
+      
     
     # Install Qt for each platform
     - name: Install Qt windows
