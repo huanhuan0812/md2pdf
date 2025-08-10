@@ -64,7 +64,7 @@ jobs:
         brew install ninja
 
     - name: Install CMake
-      uses: lukka/get-cmake@v3
+      uses: actions/setup-cmake@v3
 
     - name: Configure project
       run: |
